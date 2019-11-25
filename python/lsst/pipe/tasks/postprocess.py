@@ -52,7 +52,43 @@ def flattenFilters(df, filterDict, noDupCols=['coord_ra', 'coord_dec'], camelCas
     return newDf
 
 
-class WriteObjectTableConfig(pexConfig.Config):
+class WriteObjectTableConnections(pipeBase.PipelineTaskConnections,
+                                  defaultTemplates={"coaddName": "deep"},
+                                  dimensions=("tract", "patch", "skymap")):
+    inputCatalogMeas = pipeBase.connectionTypes.Input(
+        doc="Meas",
+        dimensions=("tract", "patch", "abstract_filter", "skymap"),
+        storageClass="SourceCatalog",
+        name="{coaddName}Coadd_meas",
+        multiple=True
+    )
+    inputCatalogForcedSrc = pipeBase.connectionTypes.Input(
+        doc="Forced Src",
+        dimensions=("tract", "patch", "abstract_filter", "skymap"),
+        storageClass="SourceCatalog",
+        name="{coaddName}Coadd_forced_src",
+        multiple=True
+    )
+    inputCatalogRef = pipeBase.connectionTypes.Input(
+        doc="Ref",
+        dimensions=("tract", "patch", "skymap"),
+        storageClass="SourceCatalog",
+        name="{coaddName}Coadd_ref"
+    )
+    dataFrame = pipeBase.connectionTypes.Output(
+        doc="Output obj",
+        dimensions=("tract", "patch", "skymap"),
+        storageClass="DataFrame",
+        name="{coaddName}Coadd_obj"
+    )
+
+    def __init__(self, *, config=None):
+        # I don't this this will be necessary.
+        super().__init__(config=config)
+
+
+class WriteObjectTableConfig(pipeBase.PipelineTaskConfig,
+                             pipelineConnections=WriteObjectTableConnections):
     priorityList = pexConfig.ListField(
         dtype=str,
         default=[],
@@ -70,12 +106,12 @@ class WriteObjectTableConfig(pexConfig.Config):
     )
 
     def validate(self):
-        pexConfig.Config.validate(self)
+        super().validate()
         if len(self.priorityList) == 0:
             raise RuntimeError("No priority list provided")
 
 
-class WriteObjectTableTask(CmdLineTask):
+class WriteObjectTableTask(CmdLineTask, pipeBase.PipelineTask):
     """Write filter-merged source tables to parquet
     """
     _DefaultName = "writeObjectTable"
@@ -88,11 +124,13 @@ class WriteObjectTableTask(CmdLineTask):
     # Tag of output dataset written by `MergeSourcesTask.write`
     outputDataset = 'obj'
 
-    def __init__(self, butler=None, schema=None, **kwargs):
+
+    # TO DO: Not sure how to get this to work with Gen 2 and Gen 3
+ #   def __init__(self, butler=None, schema=None, **kwargs):
         # It is a shame that this class can't use the default init for CmdLineTask
         # But to do so would require its own special task runner, which is many
         # more lines of specialization, so this is how it is for now
-        CmdLineTask.__init__(self, **kwargs)
+ #       CmdLineTask.__init__(self, **kwargs)
 
     def runDataRef(self, patchRefList):
         """!
@@ -104,6 +142,27 @@ class WriteObjectTableTask(CmdLineTask):
         dataId = patchRefList[0].dataId
         mergedCatalog = self.run(catalogs, tract=dataId['tract'], patch=dataId['patch'])
         self.write(patchRefList[0], mergedCatalog)
+
+    def runQuantum(self, butlerQC, inputRefs, outputRefs):
+        inputs = butlerQC.get(inputRefs)
+
+        measDict = {ref.dataId['abstract_filter']: {'meas': cat} for ref, cat in
+                    zip(inputRefs.inputCatalogMeas, inputs['inputCatalogMeas'])}
+        forcedSourceDict = {ref.dataId['abstract_filter']: {'forced_src': cat} for ref, cat in
+                            zip(inputRefs.inputCatalogForcedSrc, inputs['inputCatalogForcedSrc'])}
+
+        catalogs = {}
+        for filt, catDict in measDict.items():
+            catalogs[filt] = {}
+            catalogs[filt]['meas'] = measDict[filt]['meas']
+            catalogs[filt]['forced_src'] = forcedSourceDict[filt]['forced_src']
+            catalogs[filt]['ref'] = inputs['inputCatalogRef']
+
+        dataId = inputRefs.inputCatalogMeas[0].dataId
+        outputs = self.run(catalogs=catalogs, tract=dataId['tract'], patch=dataId['patch'])
+        import pdb; pdb.set_trace()
+        #pipeBase.Struct(outputCatalog=output.)
+        butlerQC.put(outputs, outputRefs)
 
     @classmethod
     def _makeArgumentParser(cls):
@@ -312,6 +371,18 @@ class PostprocessAnalysis(object):
         return self._df
 
 
+"""
+class TransformCatalogBaseConnections(pipeBase.PipelineTaskConnections,
+                                      dimensions=("tract", "patch", "abstract_filter", "skymap"),
+                                      defaultTemplates={"inputCoaddName": "deep",
+                                                 "outputCoaddName": "deep",
+                                                 "warpType": "direct",
+                                                 "warpTypeSuffix": "",
+                                                 "fakesType": ""}):
+
+"""
+
+
 class TransformCatalogBaseConfig(pexConfig.Config):
     coaddName = pexConfig.Field(
         dtype=str,
@@ -394,6 +465,15 @@ class TransformCatalogBaseTask(CmdLineTask):
     to organize and excecute the calculations.
 
     """
+    ConfigClass = TransformCatalogBaseConfig
+    _DefaultName = "transformCatalogBase"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.funcs = CompositeFunctor.from_file(self.config.functorFile)
+        self.funcs.update(dict(PostprocessAnalysis._defaultFuncs))
+        print(self.config.functorFile)
+
     @property
     def _DefaultName(self):
         raise NotImplementedError('Subclass must define "_DefaultName" attribute')
@@ -413,8 +493,7 @@ class TransformCatalogBaseTask(CmdLineTask):
     def runDataRef(self, patchRef):
         parq = patchRef.get()
         dataId = patchRef.dataId
-        funcs = self.getFunctors()
-        df = self.run(parq, funcs=funcs, dataId=dataId)
+        df = self.run(parq, funcs=self.funcs, dataId=dataId)
         self.write(df, patchRef)
         return df
 
@@ -442,14 +521,11 @@ class TransformCatalogBaseTask(CmdLineTask):
         return self.transform(filt, parq, funcs, dataId).df
 
     def getFunctors(self):
-        funcs = CompositeFunctor.from_file(self.config.functorFile)
-        funcs.update(dict(PostprocessAnalysis._defaultFuncs))
-        return funcs
+        return self.funcs
 
     def getAnalysis(self, parq, funcs=None, filt=None):
-        # Avoids disk access if funcs is passed
         if funcs is None:
-            funcs = self.getFunctors()
+            funcs = self.funcs
         analysis = PostprocessAnalysis(parq, funcs, filt=filt)
         return analysis
 
@@ -474,7 +550,26 @@ class TransformCatalogBaseTask(CmdLineTask):
         pass
 
 
-class TransformObjectCatalogConfig(TransformCatalogBaseConfig):
+class TransformObjectCatalogConnections(pipeBase.PipelineTaskConnections,
+                                        defaultTemplates={"coaddName": "deep"},
+                                        dimensions=("tract", "patch", "skymap")):
+    inputCatalog = pipeBase.connectionTypes.Input(
+        doc="deepCoadd_obj",
+        dimensions=("tract", "patch", "skymap"),
+        storageClass="DataFrame",
+        name="{coaddName}Coadd_obj",
+        deferLoad=True,
+    )
+    outputCatalog = pipeBase.connectionTypes.Output(
+        doc="Output ObjectTable per patch",
+        dimensions=("tract", "patch", "skymap"),
+        storageClass="DataFrame",
+        name="ObjectTable"
+    )
+
+
+class TransformObjectCatalogConfig(TransformCatalogBaseConfig, pipeBase.PipelineTaskConfig,
+                                   pipelineConnections=TransformObjectCatalogConnections):
     filterMap = pexConfig.DictField(
         keytype=str,
         itemtype=str,
@@ -495,7 +590,7 @@ class TransformObjectCatalogConfig(TransformCatalogBaseConfig):
     )
 
 
-class TransformObjectCatalogTask(TransformCatalogBaseTask):
+class TransformObjectCatalogTask(TransformCatalogBaseTask, pipeBase.PipelineTask):
     """Compute Flatted Object Table as defined in the DPDD
 
     Do the same set of postprocessing calculations on all bands
@@ -508,6 +603,7 @@ class TransformObjectCatalogTask(TransformCatalogBaseTask):
     _DefaultName = "transformObjectCatalog"
     ConfigClass = TransformObjectCatalogConfig
 
+    # Used by Gen 2 runDataRef only:
     inputDataset = 'deepCoadd_obj'
     outputDataset = 'objectTable'
 
@@ -538,6 +634,13 @@ class TransformObjectCatalogTask(TransformCatalogBaseTask):
                                 camelCase=self.config.camelCase)
 
         return df
+
+    def runQuantum(self, butlerQC, inputRefs, outputRefs):
+        # Default runQuantum might be fune
+        import pdb; pdb.set_trace()
+        inputs = butlerQC.get(inputRefs)
+        outputs = self.run(**inputs)
+        butlerQC.put(outputs, outputRefs)
 
 
 class TractObjectDataIdContainer(CoaddDataIdContainer):
