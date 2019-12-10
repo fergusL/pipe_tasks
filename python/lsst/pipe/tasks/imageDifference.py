@@ -48,7 +48,60 @@ FwhmPerSigma = 2*math.sqrt(2*math.log(2))
 IqrToSigma = 0.741
 
 
-class ImageDifferenceConfig(pexConfig.Config):
+class ImageDifferenceTaskConnections(
+    pipeBase.PipelineTaskConnections,
+    dimensions=("instrument", "visit", "detector", "skymap"),
+    defaultTemplates={"coaddName": "deep",
+                      "warpTypeSuffix": "",
+                      "fakesType": ""}
+):
+
+    exposure = pipeBase.connectionTypes.Input(
+        doc="Input science exposure to subtract from.",
+        dimensions=("instrument", "visit", "detector"),
+        storageClass="ExposureF",
+        name="calexp"
+    )
+
+    # TODO DM-22953
+    # kernelSources = pipeBase.connectionTypes.Input(
+    #     doc="Source catalog produced in calibrate task for kernel candidate sources",
+    #     name="src",
+    #     storageClass="SourceCatalog",
+    #     dimensions=("instrument", "visit", "detector"),
+    # )
+
+    skyMap = pipeBase.connectionTypes.Input(
+        doc="Input definition of geometry/bbox and projection/wcs for template exposures",
+        name="{fakesType}{coaddName}Coadd_skyMap",
+        dimensions=("skymap", ),
+        storageClass="SkyMap",
+    )
+    coaddExposures = pipeBase.connectionTypes.Input(
+        doc="Input template to match and suntract from the exposure",
+        dimensions=("tract", "patch", "skymap", "abstract_filter"),
+        storageClass="ExposureF",
+        name="{fakesType}{coaddName}Coadd{warpTypeSuffix}",
+        multiple=True,
+    )
+    subtractedExposure = pipeBase.connectionTypes.Output(
+        doc="Output subtracted exposure",
+        storageClass="ExposureF",
+        name="{coaddName}Diff_differenceExp",
+    )
+
+    diaSources = pipeBase.connectionTypes.Output(
+        doc="Output detected diaSources",
+        storageClass="SourceCatalog",
+        name="{coaddName}Diff_diaSrc",
+    )
+
+    # TODO DM-22953: Add support for refObjLoader (kernelSourcesFromRef)
+    # Make kernelSources optional
+
+
+class ImageDifferenceConfig(pipeBase.PipelineTaskConfig,
+                            pipelineConnections=ImageDifferenceTaskConnections):
     """Config for ImageDifferenceTask
     """
     doAddCalexpBackground = pexConfig.Field(dtype=bool, default=False,
@@ -258,7 +311,7 @@ class ImageDifferenceTaskRunner(pipeBase.ButlerInitializedTaskRunner):
                                                  **kwargs)
 
 
-class ImageDifferenceTask(pipeBase.CmdLineTask):
+class ImageDifferenceTask(pipeBase.PipelineTask, pipeBase.CmdLineTask):
     """Subtract an image from a template and measure the result
     """
     ConfigClass = ImageDifferenceConfig
@@ -270,7 +323,7 @@ class ImageDifferenceTask(pipeBase.CmdLineTask):
 
         @param[in] butler  Butler object to use in constructing reference object loaders
         """
-        pipeBase.CmdLineTask.__init__(self, **kwargs)
+        super().__init__(**kwargs)
         self.makeSubtask("getTemplate")
 
         self.makeSubtask("subtract")
@@ -347,6 +400,39 @@ class ImageDifferenceTask(pipeBase.CmdLineTask):
         idFactory: `lsst.afw.table.IdFactory`
         """
         return afwTable.IdFactory.makeSource(expId, 64 - expBits)
+
+    def runQuantum(self, butlerQC: pipeBase.ButlerQuantumContext,
+                   inputRefs: pipeBase.InputQuantizedConnection,
+                   outputRefs: pipeBase.OutputQuantizedConnection):
+        """Pipelinetask gen3 entry point.
+
+        Parameters
+        ----------
+        expId : `int`
+            Exposure id.
+
+        expBits: `int`
+            Number of used bits in ``expId``.
+
+        Returns
+        -------
+        None
+        """
+        if self.getTemplate.config.coaddName == 'dcr':
+            # TODO DM-22952
+            raise NotImplementedError("TODO DM-22952: Dcr coadd templates are not yet supported in gen3.")
+
+        inputs = butlerQC.get(inputRefs)
+        expId, expBits = butlerQC.quantum.dataId.pack("visit_detector",
+                                                      returnMaxBits=True)
+        inputs['idFactory'] = self.makeIdFactory(expId=expId, expBits=expBits)
+        inputs['templateExposure'] = self.getTemplate.assembleTemplateExposure(
+            butlerQC, inputRefs.skyMap, inputRefs.coaddExposures, inputs['exposure']
+        )
+        del inputs['coaddExposures']
+        del inputs['skyMap']
+        outputs = self.run(**inputs)
+        butlerQC.put(outputs, outputRefs)
 
     @pipeBase.timeMethod
     def runDataRef(self, sensorRef, templateIdList=None):
@@ -550,7 +636,7 @@ class ImageDifferenceTask(pipeBase.CmdLineTask):
                         selectSources = self.subtract.getSelectSources(
                             exposure,
                             sigma=scienceSigmaPost,
-                            doSmooth=not self.doPreConvolve,
+                            doSmooth=not self.config.doPreConvolve,
                             idFactory=idFactory,
                         )
 
