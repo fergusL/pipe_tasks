@@ -1076,6 +1076,10 @@ class LocalNanojanskyErr(LocalPhotometry):
 
 class LocalMagnitude(LocalPhotometry):
 
+    @property
+    def columns(self):
+        return [self.instFluxCol, self.photoCalibCol]
+
     def _func(self, df):
         return self.instFluxToMagnitude(df[self.col], self.fluxMag0)
 
@@ -1084,7 +1088,8 @@ class LocalMagnitudeErr(Photometry):
 
     @property
     def columns(self):
-        return [self.col, self.colFluxErr]
+        return [self.instFluxCol, self.instFluxErrCol,
+                self.photoCalibCol, self.photoCalibErrCol]
 
     @property
     def name(self):
