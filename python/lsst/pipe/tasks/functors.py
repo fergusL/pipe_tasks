@@ -1004,3 +1004,92 @@ class MagnitudeErr(Photometry):
     def _func(self, df):
         retArr = self.dn2MagErr(df[self.col], df[self.colFluxErr], self.fluxMag0, self.fluxMag0Err)
         return pd.Series(retArr, index=df.index)
+
+
+class LocalPhotometry(Functor):
+
+    def __init__(self,
+                 instFluxCol,
+                 instFluxErrCol,
+                 photoCalibCol,
+                 photoCalibErrCol,
+                 **kwargs):
+        self.instFluxCol = instFluxCol
+        self.instFluxErrCol = instFluxErrCol
+        self.photoCalibCol = photoCalibCol
+        self.photoCalibErrCol = photoCalibErrCol
+        super().__init__(**kwargs)
+
+    @property
+    def columns(self):
+        return [self.instFluxCol, self.instFluxErrCol,
+                self.photoCalibCol, self.photoCalibErrCol]
+
+    @property
+    def name(self):
+        return 'mag_{0}'.format(self.instFluxCol)
+
+    def instFluxToNanojansky(self, instFlux, localCalib):
+        return instFlux * localCalib
+
+    def instFluxErrToNanojanskyErr(self, instFlux, instFluxErr, localCalib, localCalibErr):
+        return (self.instFluxToNanojansky(instFlux, localCalib) *
+                np.hypot(instFluxErr / instFlux, localCalib / localCalibErr))
+
+    def instFluxToMagnitude(self, instFlux, localCalib):
+        return (self.instFluxToNanojansky(instFlux, localCalib) * u.nJy).to_value(u.ABmag)
+
+    def instFluxErrToMagnitudeErr(self, instFlux, instFluxErr, localCalib, localCalibErr):
+        err = self.instFluxErrToNanojanskyErr(instFlux, instFluxErr, localCalib, localCalibErr)
+        return 2.5 / np.log(10) * err / self.instFluxToNanojansky(instFlux, instFluxErr)
+
+
+class LocalNanojansky(LocalPhotometry):
+
+    @property
+    def columns(self):
+        return [self.instFluxCol, self.photoCalibCol]
+
+    @property
+    def name(self):
+        return 'flux_{0}'.format(self.instFluxCol)
+
+    def _func(self, df):
+        return self.instFluxToNanojansky(df[self.instFluxCol], df[self.photoCalibCol])
+
+
+class LocalNanojanskyErr(LocalPhotometry):
+
+    @property
+    def columns(self):
+        return [self.instFluxCol, self.instFluxErrCol,
+                self.photoCalibCol, self.photoCalibErrCol]
+
+    @property
+    def name(self):
+        return 'fluxErr_{0}'.format(self.instFluxCol)
+
+    def _func(self, df):
+        return self.instFluxErrToNanojanskyErr(df[self.instFluxCol], df[self.instFluxErrCol],
+                                               df[self.photoCalibCol], df[self.photoCalibErrCol])
+
+
+class LocalMagnitude(LocalPhotometry):
+
+    def _func(self, df):
+        return self.instFluxToMagnitude(df[self.col], self.fluxMag0)
+
+
+class LocalMagnitudeErr(Photometry):
+
+    @property
+    def columns(self):
+        return [self.col, self.colFluxErr]
+
+    @property
+    def name(self):
+        return 'magErr_{0}'.format(self.instFluxCol)
+
+    def _func(self, df):
+        return self.instFluxErrToMagnitudeErr(df[self.instFluxCol], df[self.instFluxErrCol],
+                                              df[self.photoCalibCol], df[self.photoCalibErrCol])
