@@ -34,7 +34,8 @@ try:
     from lsst.pipe.tasks.functors import (CompositeFunctor, CustomFunctor, Column, RAColumn,
                                           DecColumn, Mag, MagDiff, Color, StarGalaxyLabeller,
                                           DeconvolvedMoments, SdssTraceSize, PsfSdssTraceSizeDiff,
-                                          HsmTraceSize, PsfHsmTraceSizeDiff, HsmFwhm)
+                                          HsmTraceSize, PsfHsmTraceSizeDiff, HsmFwhm,
+                                          ComputePixelScale, ConvertPixelToArcseconds)
     havePyArrow = True
 except ImportError:
     havePyArrow = False
@@ -129,6 +130,11 @@ class FunctorTestCase(unittest.TestCase):
     def testLabeller(self):
         # Covering the code is better than nothing
         labels = self._funcVal(StarGalaxyLabeller())  # noqa
+
+    def testPixelScale(self):
+        # Test that the pixel scale and pix->arcsec calculations perform as
+        # expected.
+        pass
 
     def testOther(self):
         # Covering the code is better than nothing

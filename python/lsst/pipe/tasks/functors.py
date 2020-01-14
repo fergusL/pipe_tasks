@@ -894,6 +894,57 @@ class RadiusFromQuadrupole(Functor):
         return (df[self.colXX]*df[self.colYY] - df[self.colXY]**2)**0.25
 
 
+class ComputePixelScale(Functor):
+    """Compute the local pixel scale from the stored CDMatrix.
+    """
+
+    def __init__(self,
+                 colCD_1_1,
+                 colCD_1_2,
+                 colCD_2_1,
+                 colCD_2_2, **kwargs):
+        self.colCD_1_1 = colCD_1_1
+        self.colCD_1_2 = colCD_1_2
+        self.colCD_2_1 = colCD_2_1
+        self.colCD_2_2 = colCD_2_2
+        super().__init__(**kwargs)
+
+    @property
+    def columns(self):
+        return [self.colCD_1_1, self.colCD_1_2,
+                self.colCD_2_1, self.colCD_2_2]
+
+    def _pixelScale(self, df):
+        return 3600 * np.sqrt(df[self.colCD_1_1] * df[self.colCD_2_2] -
+                              df[self.colCD_1_2] * df[self.colCD_2_1])
+
+    def _func(self, df):
+        return self._pixelScale(df)
+
+
+class ConvertPixelToArcseconds(ComputePixelScale):
+    """Convert a value in units pixels to units arcseconds.
+    """
+
+    def __init__(self,
+                 col,
+                 colCD_1_1,
+                 colCD_1_2,
+                 colCD_2_1,
+                 colCD_2_2, **kwargs):
+        self.col = col
+        super().__init__(colCD_1_1, colCD_1_2, colCD_2_1, colCD_2_2, **kwargs)
+
+    @property
+    def columns(self):
+        return [self.col,
+                self.colCD_1_1, self.colCD_1_2,
+                self.colCD_2_1, self.colCD_2_2]
+
+    def _func(self, df):
+        return df[self.col] * self._pixelScale(df)
+
+
 class ReferenceBand(Functor):
     name = 'Reference Band'
     shortname = 'refBand'
