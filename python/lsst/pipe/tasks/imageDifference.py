@@ -23,6 +23,7 @@ import math
 import random
 import numpy
 
+import lsst.utils
 import lsst.pex.config as pexConfig
 import lsst.pipe.base as pipeBase
 import lsst.daf.base as dafBase
@@ -48,13 +49,11 @@ FwhmPerSigma = 2*math.sqrt(2*math.log(2))
 IqrToSigma = 0.741
 
 
-class ImageDifferenceTaskConnections(
-    pipeBase.PipelineTaskConnections,
-    dimensions=("instrument", "visit", "detector", "skymap"),
-    defaultTemplates={"coaddName": "deep",
-                      "warpTypeSuffix": "",
-                      "fakesType": ""}
-):
+class ImageDifferenceTaskConnections(pipeBase.PipelineTaskConnections,
+                                     dimensions=("instrument", "visit", "detector", "skymap"),
+                                     defaultTemplates={"coaddName": "deep",
+                                                       "warpTypeSuffix": "",
+                                                       "fakesType": ""}):
 
     exposure = pipeBase.connectionTypes.Input(
         doc="Input science exposure to subtract from.",
@@ -73,27 +72,27 @@ class ImageDifferenceTaskConnections(
 
     skyMap = pipeBase.connectionTypes.Input(
         doc="Input definition of geometry/bbox and projection/wcs for template exposures",
-        name="{fakesType}{coaddName}Coadd_skyMap",
+        name="{coaddName}Coadd_skyMap",
         dimensions=("skymap", ),
         storageClass="SkyMap",
     )
     coaddExposures = pipeBase.connectionTypes.Input(
-        doc="Input template to match and suntract from the exposure",
+        doc="Input template to match and subtract from the exposure",
         dimensions=("tract", "patch", "skymap", "abstract_filter"),
         storageClass="ExposureF",
         name="{fakesType}{coaddName}Coadd{warpTypeSuffix}",
         multiple=True,
     )
     subtractedExposure = pipeBase.connectionTypes.Output(
-        doc="Output subtracted exposure",
+        doc="Output difference image",
+        dimensions=("instrument", "visit", "detector"),
         storageClass="ExposureF",
-        name="{coaddName}Diff_differenceExp",
+        name="{fakesType}{coaddName}Diff_differenceExp",
     )
-
     diaSources = pipeBase.connectionTypes.Output(
-        doc="Output detected diaSources",
+        doc="Output detected diaSources on the difference image",
         storageClass="SourceCatalog",
-        name="{coaddName}Diff_diaSrc",
+        name="{fakesType}{coaddName}Diff_diaSrc",
     )
 
     # TODO DM-22953: Add support for refObjLoader (kernelSourcesFromRef)
@@ -311,7 +310,7 @@ class ImageDifferenceTaskRunner(pipeBase.ButlerInitializedTaskRunner):
                                                  **kwargs)
 
 
-class ImageDifferenceTask(pipeBase.PipelineTask, pipeBase.CmdLineTask):
+class ImageDifferenceTask(pipeBase.CmdLineTask, pipeBase.PipelineTask):
     """Subtract an image from a template and measure the result
     """
     ConfigClass = ImageDifferenceConfig
@@ -401,37 +400,26 @@ class ImageDifferenceTask(pipeBase.PipelineTask, pipeBase.CmdLineTask):
         """
         return afwTable.IdFactory.makeSource(expId, 64 - expBits)
 
+    @lsst.utils.inheritDoc(pipeBase.PipelineTask)
     def runQuantum(self, butlerQC: pipeBase.ButlerQuantumContext,
                    inputRefs: pipeBase.InputQuantizedConnection,
                    outputRefs: pipeBase.OutputQuantizedConnection):
-        """Pipelinetask gen3 entry point.
-
-        Parameters
-        ----------
-        expId : `int`
-            Exposure id.
-
-        expBits: `int`
-            Number of used bits in ``expId``.
-
-        Returns
-        -------
-        None
-        """
         if self.getTemplate.config.coaddName == 'dcr':
             # TODO DM-22952
             raise NotImplementedError("TODO DM-22952: Dcr coadd templates are not yet supported in gen3.")
 
         inputs = butlerQC.get(inputRefs)
+        self.log.info(f"Processing {butlerQC.quantum.dataId}")
         expId, expBits = butlerQC.quantum.dataId.pack("visit_detector",
                                                       returnMaxBits=True)
-        inputs['idFactory'] = self.makeIdFactory(expId=expId, expBits=expBits)
-        inputs['templateExposure'] = self.getTemplate.assembleTemplateExposure(
-            butlerQC, inputRefs.skyMap, inputRefs.coaddExposures, inputs['exposure']
+        idFactory = self.makeIdFactory(expId=expId, expBits=expBits)
+        templateStruct = self.getTemplate.runGen3(
+            inputs['exposure'], butlerQC, inputRefs.skyMap, inputRefs.coaddExposures
         )
-        del inputs['coaddExposures']
-        del inputs['skyMap']
-        outputs = self.run(**inputs)
+
+        outputs = self.run(exposure=inputs['exposure'],
+                           templateExposure=templateStruct.exposure,
+                           idFactory=idFactory)
         butlerQC.put(outputs, outputRefs)
 
     @pipeBase.timeMethod
