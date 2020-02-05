@@ -132,7 +132,7 @@ class ProcessCcdTestCase(lsst.utils.tests.TestCase):
                     print("psf Ixx = %r, Iyy = %r, Ixy = %r" % (psfIxx, psfIyy, psfIxy))
 
                     self.assertEqual(len(icSrc), 28)
-                    self.assertEqual(len(src), 185)
+                    self.assertEqual(len(src), 285)  # 185+100, temp LSK/LM fix
 
                     expectedPlaces = 7  # Tolerance for numerical comparisons
                     for name, var, val in [

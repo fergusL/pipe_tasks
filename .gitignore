@@ -61,3 +61,4 @@ bin/transformSrcMeasurement.py
 bin/ingestImagesPgsql.py
 bin/deblendDcrCoaddSources.py
 bin/makeGen3Skymap.py
+.vscode

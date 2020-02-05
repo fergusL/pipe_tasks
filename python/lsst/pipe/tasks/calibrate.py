@@ -27,7 +27,7 @@ import lsst.pipe.base as pipeBase
 import lsst.pipe.base.connectionTypes as cT
 import lsst.afw.table as afwTable
 from lsst.meas.astrom import AstrometryTask, displayAstrometry, denormalizeMatches
-from lsst.meas.algorithms import LoadIndexedReferenceObjectsTask
+from lsst.meas.algorithms import LoadIndexedReferenceObjectsTask, SkyObjectsTask
 from lsst.obs.base import ExposureIdInfo
 import lsst.daf.base as dafBase
 from lsst.afw.math import BackgroundList
@@ -239,6 +239,10 @@ class CalibrateConfig(pipeBase.PipelineTaskConfig, pipelineConnections=Calibrate
     detection = pexConfig.ConfigurableField(
         target=SourceDetectionTask,
         doc="Detect sources"
+    )
+    skySources = pexConfig.ConfigurableField(
+        target=SkyObjectsTask,
+        doc="Generate sky sources"
     )
     doDeblend = pexConfig.Field(
         dtype=bool,
@@ -492,6 +496,7 @@ class CalibrateTask(pipeBase.PipelineTask, pipeBase.CmdLineTask):
 
         if self.config.doDeblend:
             self.makeSubtask("deblend", schema=self.schema)
+        self.makeSubtask("skySources", schema=self.schema)
         self.makeSubtask('measurement', schema=self.schema,
                          algMetadata=self.algMetadata)
         if self.config.doApCorr:
@@ -675,6 +680,12 @@ class CalibrateTask(pipeBase.PipelineTask, pipeBase.CmdLineTask):
         if detRes.fpSets.background:
             for bg in detRes.fpSets.background:
                 background.append(bg)
+        skySourceFootprints = self.skySources.run(mask=exposure.mask, seed=1)
+        if skySourceFootprints:
+            for foot in skySourceFootprints:
+                s = sourceCat.addNew()
+                s.setFootprint(foot)
+                s.set(self.skySources.skySourceKey, True)
         if self.config.doDeblend:
             self.deblend.run(exposure=exposure, sources=sourceCat)
         self.measurement.run(
