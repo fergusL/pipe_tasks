@@ -278,8 +278,7 @@ class ImageDifferenceTask(pipeBase.CmdLineTask):
         if self.config.subtract.name == 'al' and self.config.doDecorrelation:
             self.makeSubtask("decorrelate")
 
-        if self.config.doScaleTemplateVariance:
-            self.makeSubtask("scaleVariance")
+        self.makeSubtask("scaleVariance")
 
         if self.config.doUseRegister:
             self.makeSubtask("register")
@@ -757,6 +756,11 @@ class ImageDifferenceTask(pipeBase.CmdLineTask):
         # END (if self.config.doSubtract)
         if self.config.doDetection:
             self.log.info("Running diaSource detection")
+
+            self.log.info("Rescaling whole image")
+            templateVarFactor = self.scaleVariance.run(subtractedExposure.getMaskedImage())
+            self.metadata.add("scaleTemplateVarianceFactor", templateVarFactor)
+
             # Erase existing detection mask planes
             mask = subtractedExposure.getMaskedImage().getMask()
             mask &= ~(mask.getPlaneBitMask("DETECTED") | mask.getPlaneBitMask("DETECTED_NEGATIVE"))
