@@ -34,7 +34,8 @@ try:
     from lsst.pipe.tasks.functors import (CompositeFunctor, CustomFunctor, Column, RAColumn,
                                           DecColumn, Mag, MagDiff, Color, StarGalaxyLabeller,
                                           DeconvolvedMoments, SdssTraceSize, PsfSdssTraceSizeDiff,
-                                          HsmTraceSize, PsfHsmTraceSizeDiff, HsmFwhm)
+                                          HsmTraceSize, PsfHsmTraceSizeDiff, HsmFwhm,
+                                          LocalPhotometry)
     havePyArrow = True
 except ImportError:
     havePyArrow = False
@@ -268,6 +269,35 @@ class FunctorTestCase(unittest.TestCase):
                     'c': Color('base_PsfFlux', 'HSC-G', 'HSC-R')}
         # Covering the code is better than nothing
         df = self._compositeFuncVal(CompositeFunctor(funcDict), parq)  # noqa
+
+    def testLocalPhotometry(self):
+        """Test the local photometry functors.
+        """
+        self.dataDict["base_PsfFlux_instFlux"] = np.full(self.nRecords, 1000)
+        self.dataDict["base_PsfFlux_instFluxErr"] = np.full(self.nRecords, 10)
+        self.dataDict["base_LocalPhotoCalib"] = np.full(self.nRecords, 10)
+        self.dataDict["base_LocalPhotoCalibErr"] = np.full(self.nRecords, 1)
+        parq = self.simulateMultiParquet(self.dataDict)
+        func = LocalPhotometry("base_PsfFlux_instFlux",
+                               "base_PsfFlux_instFluxErr",
+                               "base_LocalPhotoCalib",
+                               "base_LocalPhotoCalibErr")
+        nanoJansky = func.instFluxToNanojansky(
+            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalib")])
+        mag = func.instFluxToMagnitude(
+            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalib")])
+        nanJanskyErr = func.instFluxErrToMagnitudeErr(
+            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
+            parq.loc[("meas", "r", "base_PsfFlux_instFluxErr")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalib")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalibErr")])
+        magErr = func.instFluxErrToMagnitudeErr(
+            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
+            parq.loc[("meas", "r", "base_PsfFlux_instFluxErr")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalib")],
+            parq.loc[("meas", "r", "base_LocalPhotoCalibErr")])
 
 
 class MyMemoryTestCase(lsst.utils.tests.MemoryTestCase):
