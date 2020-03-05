@@ -1021,6 +1021,7 @@ class LocalPhotometry(Functor):
     photoCalibErrCol : `str`
         Error associated with ``photoCalibCol``
     """
+    logNJanskyToAB = 31.4
 
     def __init__(self,
                  instFluxCol,
@@ -1097,7 +1098,7 @@ class LocalPhotometry(Functor):
         calibMag : `numpy.ndarray` or `pd.Series`
             Array of calibrated AB magnitudes.
         """
-        return (self.instFluxToNanojansky(instFlux, localCalib) * u.nJy).to_value(u.ABmag)
+        return -2.5 * np.log10(self.instFluxToNanojansky(instFlux, localCalib)) + self.logNJanskyToAB
 
     def instFluxErrToMagnitudeErr(self, instFlux, instFluxErr, localCalib, localCalibErr):
         """Convert instrument flux to nanojanskys.

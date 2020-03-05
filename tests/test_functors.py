@@ -282,22 +282,28 @@ class FunctorTestCase(unittest.TestCase):
                                "base_PsfFlux_instFluxErr",
                                "base_LocalPhotoCalib",
                                "base_LocalPhotoCalibErr")
+        df = parq.toDataFrame(columns={"dataset": "meas",
+                                       "filter": "HSC-G",
+                                       "columns": ["base_PsfFlux_instFlux",
+                                                   "base_PsfFlux_instFluxErr",
+                                                   "base_LocalPhotoCalib",
+                                                   "base_LocalPhotoCalibErr"]})
         nanoJansky = func.instFluxToNanojansky(
-            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalib")])
+            df[("meas", "HSC-G", "base_PsfFlux_instFlux")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalib")])
         mag = func.instFluxToMagnitude(
-            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalib")])
+            df[("meas", "HSC-G", "base_PsfFlux_instFlux")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalib")])
         nanJanskyErr = func.instFluxErrToMagnitudeErr(
-            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
-            parq.loc[("meas", "r", "base_PsfFlux_instFluxErr")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalib")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalibErr")])
+            df[("meas", "HSC-G", "base_PsfFlux_instFlux")],
+            df[("meas", "HSC-G", "base_PsfFlux_instFluxErr")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalib")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalibErr")])
         magErr = func.instFluxErrToMagnitudeErr(
-            parq.loc[("meas", "r", "base_PsfFlux_instFlux")],
-            parq.loc[("meas", "r", "base_PsfFlux_instFluxErr")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalib")],
-            parq.loc[("meas", "r", "base_LocalPhotoCalibErr")])
+            df[("meas", "HSC-G", "base_PsfFlux_instFlux")],
+            df[("meas", "HSC-G", "base_PsfFlux_instFluxErr")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalib")],
+            df[("meas", "HSC-G", "base_LocalPhotoCalibErr")])
 
 
 class MyMemoryTestCase(lsst.utils.tests.MemoryTestCase):
