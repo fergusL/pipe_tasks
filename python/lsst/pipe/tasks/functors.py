@@ -1021,7 +1021,7 @@ class LocalPhotometry(Functor):
     photoCalibErrCol : `str`
         Error associated with ``photoCalibCol``
     """
-    logNJanskyToAB = 31.4
+    logNJanskyToAB = (1 * u.nJy).to_value(u.ABmag)
 
     def __init__(self,
                  instFluxCol,
